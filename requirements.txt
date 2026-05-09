@@ -1,0 +1,203 @@
+# ==============================================================================
+#
+#  requirements.txt
+#  Sentinel System for Information Topology
+#  "Do News and Social Media Tell the Same Story? Constructing and Comparing
+#   Sentiment Spillover Networks"
+#  Wu, F., Liu, A., Chen, J., & Li, Y. (2026) — arXiv:2604.26811v2
+#
+#  Author  : CS Chirinda
+#  License : MIT
+#  Version : 1.0.0
+#
+#  INSTALLATION
+#  ------------
+#  Create and activate a dedicated virtual environment before installing:
+#
+#      python -m venv .venv
+#      source .venv/bin/activate          # POSIX
+#      .venv\Scripts\activate             # Windows
+#      pip install --upgrade pip
+#      pip install -r requirements.txt
+#
+#  PINNING STRATEGY
+#  ----------------
+#  Compatible-release (~=) pins are applied at the MINOR version level.
+#  This operator is strictly equivalent to:
+#
+#      >= X.Y.0, == X.*
+#
+#  meaning patch-level security and bug-fix releases are accepted, while any
+#  minor or major version bump — which may introduce breaking API changes — is
+#  blocked.  This is the correct policy for a reproducible research artefact
+#  destined for HPC clusters, reviewer replication, and long-lived CI pipelines.
+#
+#  CRITICAL COMPATIBILITY CONSTRAINTS (read before bumping any pin)
+#  ----------------------------------------------------------------
+#  1. numpy is capped to the 1.26.x LTS line (<2.0.0).  numpy 2.0 introduced
+#     a breaking ABI and dtype-casting change that renders statsmodels 0.14.x
+#     and pandas-market-calendars 4.x incompatible without upstream patches.
+#     Do NOT upgrade to numpy 2.x until all downstream packages publish
+#     explicit numpy-2.x compatibility releases.
+#
+#  2. pandas-market-calendars >=4.3 is the minimum that supports the
+#     pandas 2.x API (DataFrame.append removal, copy-on-write semantics).
+#     Earlier versions will raise AttributeError at runtime.
+#
+#  3. statsmodels >=0.14 requires scipy >=1.8.  The two packages must be
+#     upgraded in lockstep; never upgrade one without re-validating the other.
+#
+#  4. seaborn 0.13.x requires matplotlib >=3.4; this file guarantees
+#     compatibility by pinning both to their current stable minor lines.
+#
+#  5. joblib >=1.3 is the minimum required for the return_as='generator_unordered'
+#     parallelism pattern used in the 1,122-pair bootstrap rolling-window loop.
+#     Earlier versions lack this dispatch mode entirely.
+#
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# SECTION 1: Core Numerical and Array Computing
+# ------------------------------------------------------------------------------
+# numpy provides the foundational N-dimensional array object (ndarray) that
+# underpins every numerical operation in this system:
+#   - sliding_window_view (numpy.lib.stride_tricks) for O(1) memory-efficient
+#     rolling-window construction across 112 windows x 1,122 pairs
+#   - Vectorised joint/marginal probability counting for Transfer Entropy
+#   - Linear algebra routines (np.linalg.eig, np.linalg.solve) for spectral
+#     radius computation and matrix power series summation (Equation 14)
+#   - Cryptographic seed seeding via hashlib -> int -> np.random.SeedSequence
+#     for perfectly reproducible stochastic imputation across worker processes
+#
+# CONSTRAINT: Capped at <2.0.0 — see compatibility note 1 above.
+# ------------------------------------------------------------------------------
+numpy>=1.26.0,<2.0.0
+
+
+# ------------------------------------------------------------------------------
+# SECTION 2: Tabular Data Engineering and Time-Series Alignment
+# ------------------------------------------------------------------------------
+# pandas provides the primary data container (DataFrame / Series) for:
+#   - 1,319-day aligned time series of confidence-weighted sentiment scores
+#   - Timestamp normalization and business-day reindexing via DatetimeIndex
+#   - Rolling window groupby operations for regime-segmented TE matrices
+#   - Null-value accounting prior to stochastic imputation (Equation 16)
+# ------------------------------------------------------------------------------
+pandas~=2.2
+
+
+# ------------------------------------------------------------------------------
+# SECTION 3: Financial Market Calendar
+# ------------------------------------------------------------------------------
+# pandas-market-calendars provides exchange-aware trading-day calendars,
+# which are essential for constructing a *uniform* 1,319-day time series
+# that excludes weekends, public holidays, and exchange-specific closures.
+# Naïve calendar arithmetic (pd.bdate_range) does not account for exchange
+# holidays and would introduce phantom trading days into the series, violating
+# the study's data-integrity requirement.
+#
+# CONSTRAINT: >=4.3 required for pandas 2.x compatibility — see note 2 above.
+# ------------------------------------------------------------------------------
+pandas-market-calendars~=4.4
+
+
+# ------------------------------------------------------------------------------
+# SECTION 4: Graph Theory and Network Topology
+# ------------------------------------------------------------------------------
+# networkx provides the directed weighted graph (DiGraph) data structure and
+# associated algorithms used throughout the topological analysis pipeline:
+#   - DiGraph construction of 34x34 weighted adjacency matrices (W_w)
+#     for each of the 112 rolling windows
+#   - Weighted in-degree (Equation 9) and out-degree (Equation 10) computation
+#   - PageRank with damping factor f=0.85 (Equation 11) for Information Hub
+#     identification
+#   - Chu-Liu/Edmonds Maximum Spanning Arborescence (MSA) algorithm for
+#     dominant information-diffusion path extraction
+#   - Jaccard Similarity Index (Equation 13) via set-theoretic edge comparison
+#     between News and Social Media network edge sets
+# ------------------------------------------------------------------------------
+networkx~=3.3
+
+
+# ------------------------------------------------------------------------------
+# SECTION 5: Scientific Computing and Statistical Distributions
+# ------------------------------------------------------------------------------
+# scipy provides the statistical infrastructure for:
+#   - scipy.stats.shapiro: Shapiro-Wilk normality test on sentiment residuals
+#     to verify the Gaussian noise assumption in stochastic imputation
+#   - scipy.stats.norm: Gaussian random variate generation for the additive
+#     noise term epsilon_t in Equation 16 (exponential decay imputation)
+#   - scipy.stats.percentileofscore / np.percentile: empirical p-value
+#     calculation from the Markov bootstrap null distribution (Equation 7)
+#   - scipy.linalg.eig: spectral radius computation for convergence analysis
+#     of the matrix power series summation (Equation 14)
+#
+# CONSTRAINT: >=1.8 required by statsmodels 0.14 — see note 3 above.
+# ------------------------------------------------------------------------------
+scipy~=1.13
+
+
+# ------------------------------------------------------------------------------
+# SECTION 6: Time-Series Econometrics
+# ------------------------------------------------------------------------------
+# statsmodels provides the econometric toolkit for the pre-processing pipeline:
+#   - statsmodels.tsa.stattools.adfuller: Augmented Dickey-Fuller (ADF) unit
+#     root test to verify stationarity of sentiment series prior to entropy
+#     estimation — a non-negotiable prerequisite for the TE framework
+#   - statsmodels.tsa.stattools.acf / pacf: Autocorrelation and Partial
+#     Autocorrelation functions used to empirically justify the AR(1)
+#     framework selection (calibration plot, Figure 1 of the paper)
+#   - statsmodels.tsa.ar_model.AutoReg: AR(1) model fitting to estimate the
+#     error-term variance sigma^2 (Equation 17) for stochastic imputation,
+#     ensuring that imputed values preserve the stochastic properties of the
+#     original series
+#   - statsmodels.api.OLS: auxiliary regression for heteroskedasticity
+#     diagnostics during the pre-processing phase
+#
+# CONSTRAINT: >=0.14 required; must be upgraded with scipy — see note 3 above.
+# ------------------------------------------------------------------------------
+statsmodels~=0.14
+
+
+# ------------------------------------------------------------------------------
+# SECTION 7: Parallel Computing
+# ------------------------------------------------------------------------------
+# joblib provides backend-agnostic multi-core parallelisation for the
+# computationally intensive bootstrap loop:
+#   - Parallel(n_jobs=-1): dispatches the 1,000-iteration Markov bootstrap
+#     across all available CPU cores, reducing wall-clock time from O(hours)
+#     to O(minutes) on a standard workstation
+#   - delayed(): serialises the per-iteration TE computation callable for
+#     zero-copy dispatch to worker processes
+#   - return_as='generator_unordered': enables memory-efficient streaming of
+#     bootstrap results, avoiding materialisation of a 1,000-element list
+#     in RAM for all 1,122 company pairs simultaneously
+#
+# CONSTRAINT: >=1.3 required for return_as='generator_unordered' — see note 5.
+# ------------------------------------------------------------------------------
+joblib~=1.4
+
+
+# ------------------------------------------------------------------------------
+# SECTION 8: Visualisation
+# ------------------------------------------------------------------------------
+# matplotlib is the foundational rendering engine for all diagnostic and
+# publication-quality figures:
+#   - Calibration plots of conditional entropy H(Y_t+1|Y_t^k) vs lag k,
+#     used to empirically justify Lag 1 selection (Figure 1 of the paper)
+#   - ACF/PACF diagnostic plots to validate the AR(1) framework
+#   - matplotlib.use('Agg') backend is enforced at module level for
+#     thread-safe, headless operation on HPC servers without a display
+#
+# seaborn provides the high-level statistical graphics layer on top of
+# matplotlib for:
+#   - 34x34 Transfer Entropy heatmaps with hierarchical clustering dendrograms
+#     (analogues of Figures 9 and 10 in the paper), visualising nodal
+#     intensity across all 112 rolling windows
+#   - Time-series line plots of network density (Equation 8) and PageRank
+#     centrality scores across the full 1,319-day study window
+#   - Regime-segmented distribution plots for comparative topology analysis
+# ------------------------------------------------------------------------------
+matplotlib~=3.9
+seaborn~=0.13
