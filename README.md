@@ -331,3 +331,7 @@ GitHub repository: https://github.com/chirindaopensource/constructing_and_compar
 -   Credit to **Fan Wu, Anqi Liu, Jing Chen, and Yuhua Li** for the foundational research that forms the entire basis for this computational replication.
 -   This project is built upon the exceptional tools provided by the open-source community. Sincere thanks to the developers of the scientific Python ecosystem, particularly the **NumPy**, **Pandas**, **Statsmodels**, and **NetworkX** contributors.
 ```
+
+--
+
+*This README was generated based on the structure and content of the `constructing_and_comparing_sentiment_spillover_networks_draft.ipynb` notebook and follows best practices for research software documentation.*
