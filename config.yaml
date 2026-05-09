@@ -1,0 +1,271 @@
+# ==============================================================================
+# MASTER STUDY CONFIGURATION: SENTIMENT SPILLOVER NETWORK REPLICATION
+# File: config.yaml
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 0) REPRODUCIBILITY / DETERMINISM CONTROLS
+# ------------------------------------------------------------------------------
+reproducibility:
+  global_random_seed: 123456  # UNSPECIFIED IN MANUSCRIPT: required to reproduce stochastic imputation + bootstrap
+  rng_library: "numpy.random.Generator(PCG64)"  # UNSPECIFIED IN MANUSCRIPT: explicit RNG engine to prevent drift
+  seed_partitioning:
+    imputation_noise_seed_offset: 10000  # UNSPECIFIED IN MANUSCRIPT
+    markov_bootstrap_seed_offset: 20000  # UNSPECIFIED IN MANUSCRIPT
+
+# ------------------------------------------------------------------------------
+# 1) UNIVERSE DEFINITION AND METADATA [Ref: Sections 1, 4.1, Appendix B]
+# ------------------------------------------------------------------------------
+metadata:
+  title: "Do News and Social Media Tell the Same Story?"
+  institution: "Cardiff University (Wu et al., 2026)"
+  nodes_total: 34
+  date_range: ["2019-09-30", "2024-10-17"]  # paper-stated
+  observations_total_T: 1319  # paper-stated
+  magnificent_seven: 
+    - "AAPL"
+    - "MSFT"
+    - "NVDA"
+    - "GOOGL"
+    - "TSLA"
+    - "META"
+    - "AMZN"
+  canonical_tickers:
+    - "AAPL"
+    - "MSFT"
+    - "NVDA"
+    - "GOOGL"
+    - "TSLA"
+    - "META"
+    - "AMZN"
+    - "V"
+    - "MA"
+    - "ADBE"
+    - "PYPL"
+    - "CRM"
+    - "CSCO"
+    - "INTC"
+    - "AVGO"
+    - "ORCL"
+    - "ACN"
+    - "AMD"
+    - "TXN"
+    - "QCOM"
+    - "INTU"
+    - "NOW"
+    - "IBM"
+    - "SPGI"
+    - "AMAT"
+    - "ADP"
+    - "ADI"
+    - "LRCX"
+    - "SQ"
+    - "MU"
+    - "MCO"
+    - "FI"
+    - "FIS"
+    - "MCHP"
+  ticker_aliases:
+    SQ: ["XYZ"]  # UNSPECIFIED IN MANUSCRIPT: added because Table 6 notes "SQ (XYZ now)"
+  sector_map:  # Derived from Table 6; required for interpretation outputs
+    AAPL: "TH"
+    MSFT: "SW"
+    NVDA: "SC"
+    GOOGL: "CS"
+    TSLA: "CC"
+    META: "CS"
+    AMZN: "CC"
+    V: "FS"
+    MA: "FS"
+    ADBE: "SW"
+    PYPL: "FS"
+    CRM: "SW"
+    CSCO: "CE"
+    INTC: "SC"
+    AVGO: "SC"
+    ORCL: "SW"
+    ACN: "IT"
+    AMD: "SC"
+    TXN: "SC"
+    QCOM: "SC"
+    INTU: "SW"
+    NOW: "SW"
+    IBM: "IT"
+    SPGI: "CM"
+    AMAT: "SC"
+    ADP: "PS"
+    ADI: "SC"
+    LRCX: "SC"
+    SQ: "FS"
+    MU: "SC"
+    MCO: "CM"
+    FI: "FS"
+    FIS: "FS"
+    MCHP: "SC"
+
+# ------------------------------------------------------------------------------
+# 2) CALENDAR / TIME-INDEX CONVENTIONS (HIGH IMPACT)
+# ------------------------------------------------------------------------------
+calendar_conventions:
+  calendar_type: "US trading days / business days"  # UNSPECIFIED IN MANUSCRIPT: implied by "200 days = 40 trading weeks"
+  timestamp_bucket_definition: "(t-1, t] local market day"  # UNSPECIFIED IN MANUSCRIPT: Bloomberg aggregation convention
+  timezone: "America/New_York"  # UNSPECIFIED IN MANUSCRIPT: choose and lock to avoid boundary drift
+  date_alignment_rule: "inner-join to master calendar of length 1319"  # must be enforced
+
+# ------------------------------------------------------------------------------
+# 3) RAW INPUT DATA SCHEMAS
+# ------------------------------------------------------------------------------
+raw_input_schema_level_0:
+  source_1: "Bloomberg News sentiment (story-level)"
+  source_2: "Bloomberg Social Media sentiment (Twitter/X + StockTwits, story-level)"
+  fields:
+    story_id: "string: unique identifier"
+    ticker: "string: maps to one of 34 canonical nodes (after alias normalization)"
+    timestamp: "datetime: exact release time T in (t-1, t]"
+    polarity: "int: S ∈ {-1, 0, 1}"
+    confidence: "float: C ∈ [0, 100]"  # corrected (was incomplete)
+
+raw_input_schema_level_1:
+  description: "Daily sentiment score (Eq. 15 output) before imputation"
+  columns:
+    date: "datetime64[ns]"
+    ticker: "string (canonical)"
+    sentiment_score: "float64: Range [-1, 1]; null if item_count=0 or missing feed"
+    item_count: "int64: Ki,T (Story_Count_K for News; Post_Count_K for Social)"
+  missing_data_profile: "0.758% to 24.56% per node (paper-stated)"
+  missingness_semantics:
+    if_item_count_is_zero_then_score_is_nan: true
+    if_score_is_nan_then_item_count_is_zero: "expected_true_but_allow_exceptions_if_vendor_flags_feed_missing"  # UNSPECIFIED IN MANUSCRIPT
+
+# ------------------------------------------------------------------------------
+# 4) PRE-PROCESSING AND STOCHASTIC TRANSFORMATIONS (Eqs. 16–18)
+# ------------------------------------------------------------------------------
+imputation_parameters:
+  model: "Exponential decay with additive Gaussian noise (Eq. 16)"
+  decay_rate_lambda: 0.23  # paper-stated
+  decay_time_variable: "Δ = number of days since last observed value B"  # UNSPECIFIED IN MANUSCRIPT: operational clarification required
+  last_observation_symbol: "B = most recent available non-missing value prior to time t"  # paper-stated in prose
+  error_term_distribution: "ε_t ~ N(0, σ^2)"  # paper-stated
+  sigma_estimation:
+    ar_model_order: 1  # paper-stated/justified via ACF/PACF
+    ar1_equation: "x_t = o + ψ_1 x_{t-1} + ε_t  (Eq. 17)"
+    variance_identity: "Var(x_t) = σ^2 / (1 - ψ_1^2)  (Eq. 18)"
+    fit_method: "OLS (or MLE) on observed points only"  # UNSPECIFIED IN MANUSCRIPT: choose and lock
+    psi_stationarity_check: "|ψ_1| < 1 required"  # implied by stationary AR(1)
+
+# ------------------------------------------------------------------------------
+# 5) DISCRETIZATION (Eq. 1)
+# ------------------------------------------------------------------------------
+discretization_parameters:
+  method: "Quantile discretization into 3 states (Eq. 1)"
+  states_count: 3
+  state_labels:
+    1: "Bearish"
+    2: "Neutral"
+    3: "Bullish"
+  quantile_levels:
+    q1: 0.3333333333333333  # UNSPECIFIED IN MANUSCRIPT: chosen to target equal-probability states
+    q2: 0.6666666666666666  # UNSPECIFIED IN MANUSCRIPT
+  quantile_scope: "per_rolling_window"  # UNSPECIFIED IN MANUSCRIPT: chosen to keep state frequencies approximately balanced locally
+  tie_break_rule: "≤ q1 -> state 1; q1<x<q2 -> state 2; ≥ q2 -> state 3 (as in Eq. 1)"  # paper-stated
+
+# ------------------------------------------------------------------------------
+# 6) TRANSFER ENTROPY (Eqs. 3–5) — ESTIMATION CONVENTIONS (HIGH IMPACT)
+# ------------------------------------------------------------------------------
+te_calibration:
+  optimal_lag_k: 1  # paper-stated (selected via conditional entropy calibration narrative)
+  optimal_lag_l: 1  # paper-stated
+  log_base: 2       # paper-stated
+  normalization:
+    enabled: true
+    denominator: "H(z_{t+1} | z_t) (Eq. 5)"  # paper-stated
+    degenerate_denominator_policy: "if H(z_{t+1}|z_t)=0 then set normalized TE to 0"  # UNSPECIFIED IN MANUSCRIPT: required edge-case rule
+  probability_estimation:
+    estimator: "plug-in empirical frequency estimator"  # UNSPECIFIED IN MANUSCRIPT: implied by standard TE implementation
+    zero_joint_probability_handling: "skip terms with p(.)=0 so contribution is 0"  # UNSPECIFIED IN MANUSCRIPT: standard convention
+    smoothing: "none"  # UNSPECIFIED IN MANUSCRIPT: do not add pseudocounts unless you document it
+    alignment: "use (z_{t+1}, z_t^{(k)}, y_t^{(l)}) tuples with t running over valid indices"  # UNSPECIFIED IN MANUSCRIPT
+
+# ------------------------------------------------------------------------------
+# 7) SIGNIFICANCE FILTERING (Eq. 7) — MARKOV BOOTSTRAP SPECIFICATION
+# ------------------------------------------------------------------------------
+inference_parameters:
+  method: "Markov bootstrap (paper-stated)"
+  n_boot: 1000  # typical and consistent with paper discussion; paper does not fix it in the excerpt (UNSPECIFIED IN MANUSCRIPT)
+  confidence_interval: 0.90  # paper-stated in results narrative (alpha=0.10)
+  alpha: 0.10
+  null_hypothesis: "No information flow from x_i to x_j"
+  bootstrap_mechanics:
+    bootstrap_series: "bootstrap source series only; keep target fixed"  # UNSPECIFIED IN MANUSCRIPT: consistent with described null-breaking logic
+    initial_state: "draw from empirical state frequencies of encoded source"
+    transition_matrix: "estimate from empirical transitions of encoded source"
+    unobserved_transition_policy: "leave as zero-probability; do not smooth"  # UNSPECIFIED IN MANUSCRIPT
+    series_length: "match window length exactly"
+  p_value_definition: "p = M / N_boot where M = #{T_ij^boot > T_ij} (Eq. 7)"  # paper-stated
+
+# ------------------------------------------------------------------------------
+# 8) NETWORK ARCHITECTURE (Eqs. 6, 12) — DYNAMIC ROLLING WINDOWS
+# ------------------------------------------------------------------------------
+network_architecture:
+  matrix_definition: "W_w is n×n weighted directed adjacency matrix (Eq. 12)"
+  entry_definition: "W_w[i,j] = normalized transfer entropy \\hat{T}_{ij,w} (Eq. 5)"
+  diagonal_policy: "W_w[i,i] = 0"
+  rolling_window_length_L: 200  # paper-stated
+  step_size_s: 10               # paper-stated
+  windows_count_formula: "W = floor((T - L)/s) + 1"  # implied; yields 112 for T=1319, L=200, s=10
+  edge_filtering:
+    enabled: true
+    rule: "keep edge iff p-value < alpha (Eq. 7)"
+    store_both: true  # UNSPECIFIED IN MANUSCRIPT: recommended to reproduce both left/right density plots
+
+# ------------------------------------------------------------------------------
+# 9) TOPOLOGICAL METRICS (Eqs. 8–11)
+# ------------------------------------------------------------------------------
+topological_metrics:
+  density: "D = sum_{i,j} \\hat{T}_{ij} / (n(n-1)) (Eq. 8)"
+  weighted_in_degree: "d_in(v_i) = sum_j \\hat{T}_{ji} (Eq. 9)"
+  weighted_out_degree: "d_out(v_i) = sum_j \\hat{T}_{ij} (Eq. 10)"
+  pagerank:
+    damping_factor_f: 0.85  # paper-stated
+    convergence_tolerance: 1.0e-12  # UNSPECIFIED IN MANUSCRIPT: must be locked
+    max_iterations: 10000           # UNSPECIFIED IN MANUSCRIPT
+    dangling_node_policy: "redistribute dangling mass uniformly across nodes"  # UNSPECIFIED IN MANUSCRIPT: required for d_out=0 cases
+
+# ------------------------------------------------------------------------------
+# 10) COMPARATIVE + OPTIMIZATION METHODS (Eqs. 13–14 + unnumbered MSA objective)
+# ------------------------------------------------------------------------------
+comparative_methodology:
+  jaccard_similarity:
+    equation: "J(G1,G2) = |A1∩A2| / |A1∪A2| (Eq. 13)"
+    edge_set_definition: "A = {(i,j): W_w[i,j] > 0}"  # UNSPECIFIED IN MANUSCRIPT: must define thresholding
+    use_filtered_networks: true  # UNSPECIFIED IN MANUSCRIPT: consistent with paper's emphasis on significant-edge sparsity
+  stability_convergence:
+    equation: "sum_{ω=1}^{∞} W_w^{ω} (Eq. 14)"
+    spectral_radius_check: "require max|λ| < 1 for convergence"  # implied by paper text
+    if_diverges_policy:
+      method: "truncate_power_series"  # UNSPECIFIED IN MANUSCRIPT: paper does not specify a truncation depth
+      omega_max: 50  # UNSPECIFIED IN MANUSCRIPT: rational placeholder
+      stopping_rule: "or stop early if ||W^ω|| becomes numerically negligible"  # UNSPECIFIED IN MANUSCRIPT
+  pathway_optimization:
+    algorithm: "Maximum Spanning Arborescence (Chu-Liu/Edmonds)"  # paper-stated
+    objective: "maximize sum_{(v_i,v_j)∈T} w(v_i,v_j) (UNNUMBERED in manuscript)"
+    root_selection: "choose node with peak weighted out-degree (Eq. 10 logic; paper-stated in prose)"
+
+# ------------------------------------------------------------------------------
+# 11) REGIME ANALYSIS + VISUALIZATION CONVENTIONS (paper-stated breakpoints)
+# ------------------------------------------------------------------------------
+visualization_parameters:
+  regime_breakpoints: ["2021-08-02", "2022-10-03"]  # paper-stated
+  regime_assignment_rule: "assign each rolling window w by its end-date (or center-date)"  # UNSPECIFIED IN MANUSCRIPT: must lock
+  network_plot_threshold: "use filtered edges only at alpha=0.10"  # UNSPECIFIED IN MANUSCRIPT: consistent with 'significant-only' plots
+  heatmap_ranking: "rank y-axis by frequency of persistent high influence over time"  # paper-stated
+  msa_visuals:
+    red_highlight: "strongest weighted path"
+    orange_highlight: "lowest weighted path"
+
+# ------------------------------------------------------------------------------
+# 12) EXPLICIT NON-INPUT: LLM SETTINGS
+# ------------------------------------------------------------------------------
+llm_usage:
+  used: false  # paper uses Bloomberg ML sentiment, not LLM prompting
+  notes: "No prompt templates or LLM settings exist in the manuscript."
