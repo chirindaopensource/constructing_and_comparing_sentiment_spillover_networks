@@ -330,7 +330,7 @@ GitHub repository: https://github.com/chirindaopensource/constructing_and_compar
 
 -   Credit to **Fan Wu, Anqi Liu, Jing Chen, and Yuhua Li** for the foundational research that forms the entire basis for this computational replication.
 -   This project is built upon the exceptional tools provided by the open-source community. Sincere thanks to the developers of the scientific Python ecosystem, particularly the **NumPy**, **Pandas**, **Statsmodels**, and **NetworkX** contributors.
-```
+
 
 --
 
